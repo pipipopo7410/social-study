@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>社會科導師複習工具 - 不重複抽題版</title>
+    <style>
+        :root { --history-color: #e74c3c; --geo-color: #27ae60; --civics-color: #2980b9; }
+        body { font-family: "Microsoft JhengHei", sans-serif; background: #f0f2f5; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        .header { text-align: center; margin-bottom: 20px; }
+        .nav { margin-bottom: 10px; }
+        button { padding: 12px 24px; margin: 5px; cursor: pointer; border: none; border-radius: 8px; font-weight: bold; color: white; transition: 0.3s; font-size: 16px; }
+        .btn-hist { background: var(--history-color); }
+        .btn-geo { background: var(--geo-color); }
+        .btn-civ { background: var(--civics-color); }
+        .btn-mode { background: #34495e; }
+        button:hover { opacity: 0.9; transform: scale(1.05); }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+
+        .mode-nav { margin-bottom: 20px; display: none; }
+        .info-tag { font-size: 14px; color: #666; margin-bottom: 10px; }
+
+        /* 閃卡樣式 */
+        #flashcard-section { display: none; flex-direction: column; align-items: center; }
+        #flashcard-container { perspective: 1000px; width: 380px; height: 260px; cursor: pointer; }
+        .card { width: 100%; height: 100%; position: relative; transition: transform 0.6s; transform-style: preserve-3d; }
+        .card.is-flipped { transform: rotateY(180deg); }
+        .card-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: bold; border-radius: 20px; box-shadow: 0 10px 20px rgba(0,0,0,0.1); padding: 30px; text-align: center; box-sizing: border-box; }
+        .card-front { background: white; color: #333; border: 5px solid; }
+        .card-back { background: #2c3e50; color: white; transform: rotateY(180deg); font-size: 20px; font-weight: normal; }
+
+        /* 配對遊戲樣式 */
+        #matching-game { display: none; grid-template-columns: repeat(4, 1fr); gap: 10px; max-width: 900px; margin-top: 20px; }
+        .m-card { background: white; border: 2px solid #cbd5e0; padding: 12px; border-radius: 10px; cursor: pointer; min-height: 80px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 14px; transition: 0.2s; }
+        .m-card.selected { border-color: #f6ad55; background: #fffaf0; }
+        .m-card.hidden { visibility: hidden; opacity: 0; }
+        
+        @media (max-width: 600px) { #matching-game { grid-template-columns: repeat(2, 1fr); } #flashcard-container { width: 320px; } }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>社會科複習站 (不重複模式)</h1>
+        <div class="nav">
+            <button class="btn-hist" onclick="selectSubject('history')">歷史 (L1-L2)</button>
+            <button class="btn-geo" onclick="selectSubject('geography')">地理 (L1-L2)</button>
+            <button class="btn-civ" onclick="selectSubject('civics')">公民 (L1-L2)</button>
+        </div>
+    </div>
+
+    <div class="mode-nav" id="mode-select">
+        <button class="btn-mode" onclick="startFlashcards()">閃卡挑戰 (輪播所有題目)</button>
+        <button class="btn-mode" onclick="startMatching()">配對消消樂</button>
+    </div>
+
+    <div id="flashcard-section">
+        <div class="info-tag" id="card-progress">進度：0 / 10</div>
+        <div id="flashcard-container" onclick="toggleFlip()">
+            <div class="card" id="main-card">
+                <div class="card-face card-front" id="flash-front">題目載入中...</div>
+                <div class="card-face card-back" id="flash-back">解釋載入中...</div>
+            </div>
+        </div>
+        <div style="margin-top: 20px;">
+            <button class="btn-mode" style="background: #e67e22;" onclick="nextCard()">下一題 (下一格知識點)</button>
+        </div>
+    </div>
+
+    <div id="matching-game"></div>
+
+    <script>
+        const rawData = {
+            history: [
+                {n: "同盟會", d: "1905年於東京成立，以三民主義為綱領"},
+                {n: "武昌起事", d: "1911年10月10日，辛亥革命成功關鍵"},
+                {n: "臨時約法", d: "具憲法性質，採內閣制以限制袁世凱權力"},
+                {n: "二次革命", d: "宋教仁案後國民黨發起討袁，最終失敗"},
+                {n: "二十一條要求", d: "袁世凱為換取稱帝支持，接受日本部分條款"},
+                {n: "洪憲帝制", d: "袁世凱廢共和改帝制，引發護國軍起義"},
+                {n: "新文化運動", d: "提倡民主與科學，主張思想文化的改造"},
+                {n: "白話文運動", d: "胡適提倡口語寫作，魯迅發表狂人日記"},
+                {n: "德先生與賽先生", d: "新文化運動核心，指民主與科學"},
+                {n: "五四運動", d: "1919年山東問題引發，擴大新文化運動影響"}
+            ],
+            geography: [
+                {n: "馬六甲海峽", d: "溝通太平洋與印度洋，世界交通要衝"},
+                {n: "熱帶雨林氣候", d: "赤道附近終年高溫多雨，主要分布於印尼"},
+                {n: "熱帶季風氣候", d: "夏雨冬乾，分布於中南半島與菲律賓"},
+                {n: "東協 (ASEAN)", d: "東南亞區域組織，促進經濟整合"},
+                {n: "次大陸", d: "指印度半島，因喜馬拉雅山阻隔形成獨立單元"},
+                {n: "德干高原", d: "南亞古老陸塊，地勢西高東低"},
+                {n: "印度大平原", d: "恆河與印度河沖積而成，南亞人口稠密區"},
+                {n: "南亞雨季", d: "6-10月，受西南季風影響降雨豐富"},
+                {n: "種姓制度", d: "印度教傳統社會階級，將人分為四個階級"},
+                {n: "班加羅爾", d: "南亞軟體工業中心，有印度矽谷之稱"}
+            ],
+            civics: [
+                {n: "私法自治", d: "民法核心，私人間關係由當事人自行決定"},
+                {n: "限制行為能力人", d: "7歲以上未滿18歲，行為原則需法代同意"},
+                {n: "無行為能力人", d: "未滿7歲或受監護宣告，行為需法代代理"},
+                {n: "契約自由", d: "可自由決定契約對象、方式及內容"},
+                {n: "侵權行為", d: "故意或過失侵害他人權利，需負損害賠償"},
+                {n: "債務不履行", d: "未依照契約約定內容履行義務"},
+                {n: "損害賠償", d: "以回復原狀為原則，金錢賠償為輔"},
+                {n: "調解", d: "鄉鎮市區公所進行，核定後具法院判決效力"},
+                {n: "訴訟上和解", d: "在法官面前達成協議，具法院判決效力"},
+                {n: "完全行為能力人", d: "滿18歲，可獨立進行有效法律行為"}
+            ]
+        };
+
+        let currentQueue = []; // 目前科目的題目隊列
+        let queueIndex = -1;   // 目前播到第幾題
+        let currentSubject = '';
+
+        // 洗牌函數
+        function shuffle(array) {
+            let currentIndex = array.length, randomIndex;
+            while (currentIndex != 0) {
+                randomIndex = Math.floor(Math.random() * currentIndex);
+                currentIndex--;
+                [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
+            }
+            return array;
+        }
+
+        function selectSubject(subject) {
+            currentSubject = subject;
+            // 每次切換科目，重新洗牌
+            currentQueue = shuffle([...rawData[subject]]);
+            queueIndex = -1;
+            
+            document.getElementById('mode-select').style.display = 'block';
+            document.getElementById('flashcard-section').style.display = 'none';
+            document.getElementById('matching-game').style.display = 'none';
+            
+            const colors = { history: 'var(--history-color)', geography: 'var(--geo-color)', civics: 'var(--civics-color)' };
+            document.getElementById('flash-front').style.borderColor = colors[subject];
+        }
+
+        function startFlashcards() {
+            document.getElementById('flashcard-section').style.display = 'flex';
+            document.getElementById('matching-game').style.display = 'none';
+            nextCard();
+        }
+
+        function nextCard() {
+            const card = document.getElementById('main-card');
+            card.classList.remove('is-flipped');
+            
+            queueIndex++;
+            
+            // 如果輪完了，重新洗牌
+            if (queueIndex >= currentQueue.length) {
+                alert("本輪 10 題已完成，即將重新洗牌開始下一輪！");
+                shuffle(currentQueue);
+                queueIndex = 0;
+            }
+
+            const item = currentQueue[queueIndex];
+            document.getElementById('card-progress').innerText = `本輪進度：${queueIndex + 1} / ${currentQueue.length}`;
+            
+            setTimeout(() => {
+                document.getElementById('flash-front').innerText = item.n;
+                document.getElementById('flash-back').innerText = item.d;
+            }, 200);
+        }
+
+        function toggleFlip() {
+            document.getElementById('main-card').classList.toggle('is-flipped');
+        }
+
+        // 配對遊戲保持原有逻辑（本身就是全出的挑戰）
+        function startMatching() {
+            document.getElementById('flashcard-section').style.display = 'none';
+            const game = document.getElementById('matching-game');
+            game.style.display = 'grid';
+            game.innerHTML = '';
+            
+            let cards = [];
+            rawData[currentSubject].forEach((item, index) => {
+                cards.push({ text: item.n, id: index, type: 'n' });
+                cards.push({ text: item.d, id: index, type: 'd' });
+            });
+            cards.sort(() => Math.random() - 0.5);
+
+            cards.forEach(cardData => {
+                const div = document.createElement('div');
+                div.className = 'm-card';
+                div.innerText = cardData.text;
+                div.onclick = () => handleMatch(div, cardData);
+                game.appendChild(div);
+            });
+        }
+
+        let firstSelect = null;
+        function handleMatch(el, data) {
+            if (el.classList.contains('hidden')) return;
+            el.classList.add('selected');
+
+            if (!firstSelect) {
+                firstSelect = { el, data };
+            } else {
+                if (firstSelect.el === el) {
+                    el.classList.remove('selected');
+                    firstSelect = null;
+                    return;
+                }
+                if (firstSelect.data.id === data.id && firstSelect.data.type !== data.type) {
+                    setTimeout(() => {
+                        firstSelect.el.classList.add('hidden');
+                        el.classList.add('hidden');
+                        firstSelect = null;
+                    }, 300);
+                } else {
+                    setTimeout(() => {
+                        firstSelect.el.classList.remove('selected');
+                        el.classList.remove('selected');
+                        firstSelect = null;
+                    }, 500);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
